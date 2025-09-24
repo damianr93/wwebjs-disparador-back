@@ -1,36 +1,48 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import mensajeRoutes from './routes/mensaje.routes.js';
 import initSocket from './sockets/socket.js';
 import config from './config/index.js';
-import { client } from './services/whatsappService.js';  // <-- Importa aquí el client
+import { client } from './services/whatsappService.js';
+import { createServer } from 'http';
+import { Server as IOServer } from 'socket.io';
+import errorHandler from './middlewares/errorHandler.js';
 
-// --- Express setup ---
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
-// Monta tus rutas
 app.use('/', mensajeRoutes);
 
-// --- HTTP + Socket.IO ---
-import { createServer } from 'http';
-import { Server as IOServer } from 'socket.io';
+app.get('/health', (_req, res) => {
+    res.status(200).type('text/plain').send('OK');
+});
+
+app.use(errorHandler);
 
 const httpServer = createServer(app);
 const io = new IOServer(httpServer, { cors: { origin: '*' } });
-
-// Inicializa los listeners de QR y ready
 initSocket(io);
 
-// --- Listener de respuestas de usuarios ---
 client.on('message', async msg => {
-  const texto = msg.body.trim().toLowerCase();
-  if (texto === 'si' || texto === 'sí') {
-    await client.sendMessage(msg.from, '¡Gracias por su respuesta!');
-  }
+    const text = (msg.body || '').trim().toLowerCase();
+    if (text === 'si') {
+        await client.sendMessage(msg.from, 'Gracias por su respuesta!');
+    }
 });
 
-// --- Arranca el servidor ---
 const PORT = config.port;
-httpServer.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
+
+httpServer.on('error', err => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`El puerto ${PORT} ya esta en uso. Cierra la otra instancia y vuelve a intentarlo.`);
+        process.exit(1);
+    }
+    console.error('Error en HTTP Server:', err);
+    process.exit(1);
+});
+
+httpServer.listen(PORT, () => {
+    console.log(`Servidor Express escuchando en http://localhost:${PORT}`);
+});
